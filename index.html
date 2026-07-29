@@ -764,6 +764,11 @@
 </head>
 <body>
 
+<!-- Visitor-facing content lives in this wrapper so autosaved edits (nav, programs,
+     footer, etc.) can be restored in one shot on load without disturbing the
+     editor UI below it. -->
+<div id="site-content">
+
 <!-- ═══════════════════════════════════ NAV ═══════════════════════════════════ -->
 <nav id="navbar">
   <div class="container">
@@ -1040,6 +1045,8 @@
   </div>
 </footer>
 
+</div><!-- /#site-content -->
+
 <!-- ═══════════════════════════════════ EDITOR UI ════════════════════════════ -->
 <!-- Password gate -->
 <div id="pw-overlay">
@@ -1057,10 +1064,11 @@
   </div>
 </div>
 
-<div id="edit-banner">✏️ Edit Mode — Click any text on the page to change it &nbsp;|&nbsp; Use the buttons below-right to edit links or download your updated file</div>
+<div id="edit-banner">✏️ Edit Mode — Click any text on the page to change it &nbsp;|&nbsp; Changes autosave to this browser &nbsp;|&nbsp; Click Download to keep a permanent copy</div>
 
 <div id="editor-toolbar">
   <div id="editor-secondary-actions">
+    <button class="editor-btn editor-secondary" id="reset-btn" style="color:#b91c1c;">🗑️ Reset to Original</button>
     <button class="editor-btn editor-secondary" id="logout-btn">🔓 Lock Editor</button>
     <button class="editor-btn editor-secondary" id="link-edit-btn">🔗 Edit Links &amp; Emails</button>
     <button class="editor-btn editor-secondary" id="download-btn">💾 Download HTML</button>
@@ -1082,6 +1090,15 @@
 
 <!-- ═══════════════════════════════════ JS ════════════════════════════════════ -->
 <script>
+  /* ── Restore autosaved edits (must run before anything below queries the DOM) ── */
+  const SITE_CONTENT_KEY = 'wwng_site_content_v1';
+  (function restoreSiteContent() {
+    try {
+      const saved = localStorage.getItem(SITE_CONTENT_KEY);
+      if (saved) document.getElementById('site-content').innerHTML = saved;
+    } catch (e) { /* localStorage unavailable (private mode, quota, etc.) */ }
+  })();
+
   /* Sticky nav */
   const navbar = document.getElementById('navbar');
   window.addEventListener('scroll', () => {
@@ -1117,10 +1134,36 @@
     const downloadBtn    = document.getElementById('download-btn');
     const linkEditBtn    = document.getElementById('link-edit-btn');
     const logoutBtn      = document.getElementById('logout-btn');
+    const resetBtn       = document.getElementById('reset-btn');
     const modalOverlay   = document.getElementById('link-modal-overlay');
     const modalCancel    = document.getElementById('modal-cancel');
     const modalSave      = document.getElementById('modal-save');
     const linkFields     = document.getElementById('link-fields');
+    const siteContentEl  = document.getElementById('site-content');
+
+    /* ── Autosave (browser-local, so edits survive a refresh) ── */
+    function saveSiteContent() {
+      try {
+        const wasEditing = editMode;
+        if (wasEditing) editableEls.forEach(el => el.removeAttribute('contenteditable'));
+        localStorage.setItem(SITE_CONTENT_KEY, siteContentEl.innerHTML);
+        if (wasEditing) editableEls.forEach(el => el.setAttribute('contenteditable', 'true'));
+      } catch (e) { /* localStorage unavailable (private mode, quota, etc.) */ }
+    }
+
+    let autosaveTimer = null;
+    function scheduleAutosave() {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(saveSiteContent, 500);
+    }
+
+    // Debounced save while typing, immediate save when leaving a field
+    document.addEventListener('input', e => {
+      if (editMode && e.target.closest && e.target.closest('#site-content')) scheduleAutosave();
+    });
+    document.addEventListener('blur', e => {
+      if (editMode && e.target.hasAttribute && e.target.hasAttribute('contenteditable')) saveSiteContent();
+    }, true);
 
     /* ── Password gate ── */
     const pwOverlay  = document.getElementById('pw-overlay');
@@ -1211,6 +1254,14 @@
       disableEdit();
     });
 
+    // Discards autosaved edits in this browser and reloads the original static markup
+    resetBtn.addEventListener('click', () => {
+      if (confirm('Discard all autosaved edits in this browser and reload the original page? This cannot be undone.')) {
+        try { localStorage.removeItem(SITE_CONTENT_KEY); } catch (e) { /* ignore */ }
+        location.reload();
+      }
+    });
+
     // Selectors whose TEXT content should be editable
     const TEXT_SELECTORS = [
       'h1', 'h2', 'h3', 'h4',
@@ -1283,6 +1334,8 @@
         a.setAttribute('href', a.dataset.savedHref);
         delete a.dataset.savedHref;
       });
+
+      saveSiteContent();
     }
 
     /* ── Add / remove programs ── */
@@ -1328,6 +1381,7 @@
       const card = createProgramCard();
       programsGrid.insertBefore(card, addProgramCard);
       makeElementsEditable(card);
+      saveSiteContent();
     }
 
     addProgramCard.addEventListener('click', addProgram);
@@ -1343,6 +1397,7 @@
       const name = card.querySelector('.program-card-head h3')?.textContent.trim() || 'this program';
       if (confirm(`Remove "${name}"? This can't be undone (unless you reload without saving).`)) {
         card.remove();
+        saveSiteContent();
       }
     });
 
@@ -1478,6 +1533,7 @@
         item.value = val;
       });
       modalOverlay.classList.remove('open');
+      saveSiteContent();
     });
   })();
 </script>
